@@ -193,7 +193,7 @@ def swivel_clock(envMode = False):
   universal_update(envMode)
 
 
-actions = [(lambda x: None), stepForward, stepBackward, swivel_clock, swivel_anticlock] # Later, for the official env.
+actions = [(lambda : None), stepForward, stepBackward, swivel_clock, swivel_anticlock] # Later, for the official env.
 # Code to actually update everything
 pygame.display.update() 
 

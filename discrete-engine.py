@@ -177,7 +177,7 @@ def action_up(lim=10, envMode = False):
   agent_y -= biggest_step(lim, lambda step : (agent_x, agent_y - step))
   universal_update(envMode)
 
-actions = [(lambda x: None), action_left, action_right, action_up, action_down] # Later, for the official env.
+actions = [(lambda : None), action_left, action_right, action_up, action_down] # Later, for the official env.
 # Code to actually update everything
 pygame.display.update() 
 

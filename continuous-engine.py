@@ -202,7 +202,7 @@ def swivel_anticlock():
   angular_velocity = max(angular_velocity - 0.01, -0.01);
 
 
-actions = [(lambda x: None), accelerate, stop, swivel_clock, swivel_anticlock] # Later, for the official env.
+actions = [(lambda : None), accelerate, stop, swivel_clock, swivel_anticlock] # Later, for the official env.
 # Code to actually update everything
 pygame.display.update() 
 

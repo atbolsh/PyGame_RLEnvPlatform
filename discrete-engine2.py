@@ -207,8 +207,6 @@ while True:
     stepForward()
   if keys[K_DOWN]:
     stepBackward() 
-  # Adding in a 'sleep' by default means some keypresses are just missed, which is a shame
-  # It's possible that, in 'env mode', there should be no sleep, with the environment updates triggered by agent actions alone.
   for event in pygame.event.get():
     if event.type == QUIT:
       pygame.quit()

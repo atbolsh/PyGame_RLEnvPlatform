@@ -75,9 +75,16 @@ class DiscreteEngine2:
     prev_reward = self.reward
     self.action_space[actionInd]() # If needed, incudes a draw and display update
     reward_delta = self.reward - prev_reward
-    done = False # Maybe change later.
-    info = {'done': False} # Maybe change later.
+    done = self.done()
+    info = self.get_info()
     return self.get_array(), reward_delta, done, info 
+
+  def is_done(self):
+    return False # Can be overrirdden in children.
+
+  def get_info(self): # Can be overrident in children
+    return {'done': self.done()}
+
   # draw funcs
 
   def draw(self):

@@ -2,22 +2,18 @@ import pygame, sys
 from pygame.locals import *
 import math
 from time import sleep
+from copy import deepcopy
 
 from levels.skeleton2_5 import *
 
 
 class discreteGame:
-    def __init__(self, settings):
+    def __init__(self, settings, envMode = False):
         self.reward = 0
+        self.envMode = envMode
+        self.initial = deepcopy(settings)
         self.settings = settings
 
-        # set up pygame
-        pygame.init()
-        
-        # set up the window
-        self.windowSurface = pygame.display.set_mode((self.settings.gameSize, self.settings.gameSize), 0, 32)
-        pygame.display.set_caption('discrete engine')
-        
         self.BLACK = (0, 0, 0)
         self.WHITE = (255, 255, 255)
         
@@ -28,12 +24,23 @@ class discreteGame:
         self.GOLD = (255, 200, 0)
 
         self.actions = [(lambda : None), self.stepForward, self.stepBackward, self.swivel_clock, self.swivel_anticlock]
-        
+ 
+        if envMode:
+            self.windowSurface = pygame.Surface((self.settings.gameSize, self.settings.gameSize))
+        else:
+            # set up pygame
+            pygame.init()
+            # set up the window
+            self.windowSurface = pygame.display.set_mode((self.settings.gameSize, self.settings.gameSize), 0, 32)
+            pygame.display.set_caption('discrete engine')
+               
         self.windowSurface.fill(self.WHITE)
+        self.universal_update()
 
-        
-    # draw funcs
-    
+        if not self.envMode:
+            self.humanGame()
+ 
+    # draw funcs    
     def backRot(self, pos_x, pos_y, theta): # Counterclockwise, compensating
         c = math.cos(theta)
         s = math.sin(theta)
@@ -91,19 +98,21 @@ class discreteGame:
         for params in self.settings.walls:
             tp = self.true_wall_params(params)
             clientSurface = pygame.Surface((tp[2], tp[3]))
-            clientSurface = clientSurface.convert_alpha()
+            clientSurface.fill(self.WHITE)
+            clientSurface.set_colorkey(self.WHITE)
+#            clientSurface = clientSurface.convert_alpha(self.windowSurface)
             pygame.draw.rect(clientSurface, self.BLACK, (0, 0, tp[2], tp[3]))
             clientSurface = pygame.transform.rotate(clientSurface, 0 - params[4]*180/math.pi) # Format is consistent with js
             newX, newY = self.top_corner_adjustment(tp[0], tp[1], tp[2], tp[3], tp[4])
             self.windowSurface.blit(clientSurface, (newX, newY))
     
     
-    def draw(self, envMode = False):
+    def draw(self):
       self.windowSurface.fill(self.WHITE)
       self.draw_agent()
       self.draw_walls()
       self.draw_gold()
-      if not envMode:
+      if not self.envMode:
           pygame.display.update()
     
     # Overlap-detection, updating funcs
@@ -133,10 +142,10 @@ class discreteGame:
                 self.reward += 1;
                 print("Reward: " + str(self.reward));
     
-    def universal_update(self, envMode = False):
+    def universal_update(self):
         self.gold_update()
-        self.draw(envMode)
-        if not envMode:
+        self.draw()
+        if not self.envMode:
             sleep(1.0/10)
     
     def wall_overlap_check(self, old_agent_x, old_agent_y, wall_x, wall_y, wall_w, wall_h, wall_theta):
@@ -186,35 +195,37 @@ class discreteGame:
     
     ## Full definition of actions from here.
     
-    def stepForward(self, lim=None, envMode = False):
+    def stepForward(self, lim=None):
         if lim is None:
             lim = 1.0/64 # big enough for most pixelations, small enough to make gameSize 800 interesting.
         stepSize = self.biggest_step(lim, lambda step : (self.settings.agent_x + step*math.cos(self.settings.direction), self.settings.agent_y + step*math.sin(self.settings.direction)))
         self.settings.agent_x += stepSize*math.cos(self.settings.direction)
         self.settings.agent_y += stepSize*math.sin(self.settings.direction)
-        self.universal_update(envMode)
+        self.universal_update()
     
-    def stepBackward(self, lim=None, envMode = False):
+    def stepBackward(self, lim=None):
         if lim is None:
             lim = 1.0/64 # big enough for most pixelations, small enough to make gameSize 800 interesting.
         stepSize = self.biggest_step(lim, lambda step : (self.settings.agent_x - step*math.cos(self.settings.direction), self.settings.agent_y - step*math.sin(self.settings.direction)))
         self.settings.agent_x -= stepSize*math.cos(self.settings.direction)
         self.settings.agent_y -= stepSize*math.sin(self.settings.direction)
-        self.universal_update(envMode)
+        self.universal_update()
     
-    def swivel_anticlock(self, envMode = False):
+    def swivel_anticlock(self):
         self.settings.direction = self.mod2pi(self.settings.direction + math.pi/30)
-        self.universal_update(envMode)
+        self.universal_update()
     
-    def swivel_clock(self, envMode = False):
+    def swivel_clock(self):
         self.settings.direction = self.mod2pi(self.settings.direction - math.pi/30)
-        self.universal_update(envMode)
+        self.universal_update()
     
     def humanGame(self):    
+        assert (not self.envMode), "initialize with envMode = False to play"
+
         # Code to actually update everything
         self.draw()
         pygame.display.update() 
-        
+
         while True:
             keys=pygame.key.get_pressed()
             if keys[K_LEFT]:
@@ -228,5 +239,26 @@ class discreteGame:
             for event in pygame.event.get():
                 if event.type == QUIT:
                     pygame.quit()
-                    return 0
-          
+                    return None
+
+    def getData(self):
+        return pygame.surfarray.array3d(self.windowSurface)
+
+    def blowup(self, factor):
+        bigSettings = deepcopy(self.settings)
+        bigSettings.gameSize = int(factor*self.settings.gameSize)
+        slave = discreteGame(bigSettings, envMode=True)
+        return slave.getData()
+
+    def zoom(self, center, factor):
+        assert factor >= 1, "factor must be larger than 1.9"
+        canvas = self.blowup(factor) # this part may be slow; a better function would only draw what's in frame.
+        bigSize = int(factor*self.settings.gameSize)
+        maxCenterCoord = int(bigSize - (self.settings.gameSize/2))
+        centerX = min(int(center[0]*factor), maxCenterCoord)
+        centerY = min(int(center[1]*factor), maxCenterCoord)
+        leftPoint = max(int(centerX - (self.settings.gameSize / 2)), 0)
+        topPoint = max(int(centerY - (self.settings.gameSize / 2)), 0)
+        return canvas[leftPoint:leftPoint + self.settings.gameSize, topPoint:topPoint + self.settings.gameSize]
+
+ 

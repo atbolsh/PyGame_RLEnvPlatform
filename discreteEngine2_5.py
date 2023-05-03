@@ -12,8 +12,9 @@ from levels.skeleton2_5 import *
 class discreteGame:
     def __init__(self, settings = None, envMode = False):
         # params for random initialization; usually ignored (put them into a Settings object?)
+        self.typically_restrict_angles = False
         self.typical_indicator_length = 0.5
-        self.typical_wall_width = 100/800
+        self.typical_wall_width = 50/800
         self.side_wall_width = 50/800
         self.typical_min_wall_height = 300/800
         self.typical_max_wall_height = 600 / 800
@@ -22,13 +23,12 @@ class discreteGame:
         self.typical_gold_r = 1.0/64
         self.typical_max_gold_num = 4
         if settings is None:
-            settings = self.random_settings()
+            settings = self.random_settings(self.typically_restrict_angles)
 
         # End of randomization params
         self.reward = 0
         self.envMode = envMode
         self.initial = deepcopy(settings)
-        self.settings = settings
 
         self.BLACK = (0, 0, 0)
         self.WHITE = (255, 255, 255)
@@ -39,8 +39,9 @@ class discreteGame:
         
         self.GOLD = (255, 200, 0)
 
-        self.actions = [(lambda : None), self.stepForward, self.stepBackward, self.swivel_clock, self.swivel_anticlock]
- 
+        self.actions = [(lambda : 0), self.stepForward, self.stepBackward, self.swivel_clock, self.swivel_anticlock]
+        self.settings = settings
+
         if envMode:
             self.windowSurface = pygame.Surface((self.settings.gameSize, self.settings.gameSize))
         else:
@@ -55,7 +56,21 @@ class discreteGame:
 
         if not self.envMode:
             self.humanGame()
- 
+
+    def reset(self):
+        self.settings = deepcopy(self.initial)
+        self.reward = 0
+        self.universal_update()
+        if not self.envMode:
+            self.humanGame()
+            return None, {}
+        else:
+            return self.getData(), {} # dummy 'info' dictionary for now.
+
+    def random_reset(self, restrict_angles = False):
+        self.initial = self.random_settings(self.settings.gameSize, restrict_angles)
+        return self.reset()
+
     ####### Functions for drawing / evaluating position.
     def backRot(self, pos_x, pos_y, theta): # Counterclockwise, compensating
         c = math.cos(theta)
@@ -148,6 +163,7 @@ class discreteGame:
     
     def gold_update(self):
         # Going backward to prevent the deletions from affecting the traversal
+        collected = 0
         for i in range(len(self.settings.gold) -1, -1, -1):
             if (self.spot_overlap_check(self.settings.agent_x, \
                                    self.settings.agent_y, \
@@ -156,13 +172,16 @@ class discreteGame:
                                    self.settings.gold_r)):
                 del self.settings.gold[i]
                 self.reward += 1;
+                collected += 1
                 print("Reward: " + str(self.reward));
+        return collected
     
     def universal_update(self):
-        self.gold_update()
+        collected = self.gold_update()
         self.draw()
         if not self.envMode:
             sleep(1.0/10)
+        return collected
     
     def wall_overlap_check(self, old_agent_x, old_agent_y, wall_x, wall_y, wall_w, wall_h, wall_theta, agent_r = None):
         if agent_r is None:
@@ -219,7 +238,7 @@ class discreteGame:
         stepSize = self.biggest_step(lim, lambda step : (self.settings.agent_x + step*math.cos(self.settings.direction), self.settings.agent_y + step*math.sin(self.settings.direction)))
         self.settings.agent_x += stepSize*math.cos(self.settings.direction)
         self.settings.agent_y += stepSize*math.sin(self.settings.direction)
-        self.universal_update()
+        return self.universal_update() # returns the gold collected this step.
     
     def stepBackward(self, lim=None):
         if lim is None:
@@ -227,15 +246,15 @@ class discreteGame:
         stepSize = self.biggest_step(lim, lambda step : (self.settings.agent_x - step*math.cos(self.settings.direction), self.settings.agent_y - step*math.sin(self.settings.direction)))
         self.settings.agent_x -= stepSize*math.cos(self.settings.direction)
         self.settings.agent_y -= stepSize*math.sin(self.settings.direction)
-        self.universal_update()
+        return self.universal_update()
     
     def swivel_anticlock(self):
         self.settings.direction = self.mod2pi(self.settings.direction + math.pi/30)
-        self.universal_update()
+        return self.universal_update()
     
     def swivel_clock(self):
         self.settings.direction = self.mod2pi(self.settings.direction - math.pi/30)
-        self.universal_update()
+        return self.universal_update()
 
     ####### Function for "Arcade" UI   
     def humanGame(self):    
@@ -261,6 +280,14 @@ class discreteGame:
                     return None
 
     ####### Functions for machine UI: numpy arrays and zoomed-in numpy arrays as output.
+    def step(self, actionIndex):
+        reward = self.actions[actionIndex]()
+        obs = self.getData()
+        terminated = False # dummies for now
+        truncated = False
+        info = {}
+        return obs, reward, terminated, truncated, info
+
     def getData(self):
         return pygame.surfarray.array3d(self.windowSurface)
 
@@ -286,11 +313,17 @@ class discreteGame:
         for i in range(len(centers)):
             batch[i] = self._zoom_helper(centers[i], factor, canvas)
         return batch
-           
-    def random_factor(self, minFactor, maxFactor):
-        return random.uniform(minFactor, maxFactor)
 
-    def center_near(self, point, scale=None):
+    def random_jitter(self):
+        num_actions = 3
+        max_num_repeats = 30
+        for _ in range(num_actions):
+            action_ind = random.randint(1, 4) # skip the 'do nothing' action.
+            for _ in range(random.randint(1, max_num_repeats)):
+                self.actions[action_ind]()
+            
+           
+    def random_center_near(self, point, scale=None):
         if scale is None:
             scale = self.settings.gold_r
         return (random.uniform(point[0] - scale, point[0] + scale), random.uniform(point[1] - scale, point[1] + scale))
@@ -357,7 +390,7 @@ class discreteGame:
         y = random.uniform(offset, maxVal)
         return (x, y)
 
-    def random_image_batch(self):
+    def random_full_image_batch(self):
         """Batch of ML training images. Full picture, and zooms to some random / important places, at different magnifications"""
         num_factors = 2 # Total number of zoom factors to be used.
         num_gold = 2
@@ -367,12 +400,12 @@ class discreteGame:
         num_random = 3 # For each scale, 4 more random zooms will be included
 
         num_per_factor = num_gold + num_agent + num_walls*num_per_wall + num_random
-        num_total = 1 + num_factors*num_per_factor
+        num_total = 1 + num_factors*num_per_factor + 1 # one normal, lots of closeups, one after jitter
         
         gold_centers = [random.choice(self.settings.gold) for i in range(num_gold)]
         agent_centers = [(self.settings.agent_x, self.settings.agent_y)]
         for i in range(num_agent - 1):
-            agent_centers.append(self.center_near(agent_centers[0], scale=self.settings.agent_r))
+            agent_centers.append(self.random_center_near(agent_centers[0], scale=self.settings.agent_r))
         wall_centers = self.random_wall_centers(num_walls, num_per_wall)
 
         rand_factor1 = random.uniform(2, 1/(4*self.settings.agent_r))
@@ -388,10 +421,39 @@ class discreteGame:
         batch = np.zeros((num_total, self.settings.gameSize, self.settings.gameSize, 3))
         batch[0] = self.getData()
         batch[1:(num_per_factor+1)] = self.zoom(fac1List, rand_factor1)
-        batch[(num_per_factor+1):] = self.zoom(fac2List, rand_factor2)
+        batch[(num_per_factor+1):-1] = self.zoom(fac2List, rand_factor2)
+
+        self.random_jitter()
+        batch[-1] = self.getData()
 
         return batch
-        
+
+    def random_small_image_batch(self):
+        """just the original and some jitter"""
+        num_total = 2
+        batch = np.zeros((num_total, self.settings.gameSize, self.settings.gameSize, 3))
+        batch[0] = self.getData()
+        self.random_jitter()
+        batch[-1] = self.getData()
+        return batch
+
+    def random_full_image_set(self, numBatches=2, restrict_angles=False):
+        """numBatches = full size / 20. Make it divisible by 20.
+        Careful using this; this deletes the original game."""
+        res = np.zeros((numBatches*20, self.settings.gameSize, self.settings.gameSize, 3))
+        ind = 0
+        for batch in range(numBatches):
+            if batch % 2 == 0:
+                for sec in range(10):
+                    self.random_reset(restrict_angles)
+                    res[ind:ind+2] = self.random_small_image_batch()
+                    ind += 2
+            else:
+                self.random_reset(restrict_angles)
+                res[ind:ind+20] = self.random_full_image_batch()
+                ind += 20
+        return res
+      
     ####### Functions for random initialization
     def random_ul_corner(self, wall_w, wall_h, wall_theta):
         corners = self.corners(0, 0, wall_w, wall_h, wall_theta)
@@ -407,10 +469,13 @@ class discreteGame:
         leftlim = self.side_wall_width - mx
         return random.uniform(leftlim, rightlim), random.uniform(botlim, toplim)
 
-    def random_wall(self):
+    def random_wall(self, restrict_angles=False):
         wall_w = self.typical_wall_width
         wall_h = random.uniform(self.typical_min_wall_height, self.typical_max_wall_height)
-        wall_theta = random.uniform(0, 2*math.pi) # probably overkill, I don't think the symmetries matter for computational efficiency, though.
+        if restrict_angles:
+            wall_theta = random.randint(0, 1)*math.pi/2 # restrict it to right angles, to make it easier on the autoencoder
+        else:
+            wall_theta = random.uniform(0, 2*math.pi) # probably overkill, I don't think the symmetries matter for computational efficiency, though.
         wall_x, wall_y = self.random_ul_corner(wall_w, wall_h, wall_theta)
         return [wall_x, wall_y, wall_w, wall_h, wall_theta]
 
@@ -455,10 +520,10 @@ class discreteGame:
                 walls.append([wall_x2, wall_y2, wall_w, wall_h, wall_theta])
         return walls
 
-    def random_walls(self):
+    def random_walls(self, restrict_angles=False):
         walls = self.random_side_walls()
         for i in range(random.randint(1, self.typical_max_wall_num)):
-            walls.append(self.random_wall())
+            walls.append(self.random_wall(restrict_angles))
         return walls
 
     def random_valid_coords(self, walls, radius):
@@ -476,8 +541,8 @@ class discreteGame:
             gold.append(self.random_valid_coords(walls, self.typical_gold_r))
         return gold
 
-    def random_settings(self, gameSize=64):
-        walls = self.random_walls()
+    def random_settings(self, gameSize=64, restrict_angles=False):
+        walls = self.random_walls(restrict_angles)
         gold = self.random_gold(walls)
         agent_x, agent_y = self.random_valid_coords(walls, self.typical_agent_r)
         direction = random.uniform(0, 2*math.pi)
@@ -491,24 +556,4 @@ class discreteGame:
                        agent_y = agent_y,
                        direction = direction)
         return res
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

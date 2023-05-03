@@ -23,7 +23,7 @@ class discreteGame:
         self.typical_gold_r = 1.0/64
         self.typical_max_gold_num = 4
         if settings is None:
-            settings = self.random_settings(self.typically_restrict_angles)
+            settings = self.random_settings(restrict_angles = self.typically_restrict_angles)
 
         # End of randomization params
         self.reward = 0
